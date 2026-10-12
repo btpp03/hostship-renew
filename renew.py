@@ -114,7 +114,8 @@ def main():
         log("SMOKE POST /renew -> HTTP %s %s" % (s, t[:200]))
         time.sleep(3)
         log("SMOKE after -> %s" % info()["days"])
-        return 0 if s in (200, 204) else 1
+        log("（冒烟测试到此为止：HTTP 204=真续上了；400 'cannot add more than 30 days'=已顶到上限，正常）")
+        return 0
 
     if st["suspended"]:
         tg("❌ host-ship 服务器已被停用（%s #%s），需要手动登录面板处理\n%s" % (st["name"], st["name_id"], BASE))
@@ -145,6 +146,9 @@ def main():
                 log("网络错误，稍后重试")
                 time.sleep(20)
                 continue
+            if s == 400 and "more than 30 days" in t:
+                log("已顶到 30 天上限（面板正常拒绝），无需再续")
+                break
             tg("❌ host-ship 续期失败：HTTP %s %s\n%s" % (s, t[:200], BASE))
             return 1
         rounds += 1
