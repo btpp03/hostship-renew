@@ -12,6 +12,10 @@ on:
         description: '冒烟测试：只打一次 /renew 不做守门判断、不发 TG'
         type: boolean
         default: false
+      notify_test:
+        description: '只测 Telegram 通知链路（不碰面板）'
+        type: boolean
+        default: false
       min_days:
         description: '覆盖 HS_MIN_DAYS（手动调试用，留空=10）'
         type: string
@@ -43,6 +47,7 @@ jobs:
           HS_TOPUP_DAYS: '30'
           HS_MAX_ROUNDS: '3'
           HS_SMOKE: ${{ github.event.inputs.smoke == 'true' && '1' || '' }}
+          HS_NOTIFY_TEST: ${{ github.event.inputs.notify_test == 'true' && '1' || '' }}
         run: python3 renew.py
 
       - name: 失败时提示

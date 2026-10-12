@@ -103,6 +103,11 @@ def main():
     if not KEY or not UUID:
         log("!! 缺少 HS_API_KEY / HS_UUID")
         return 2
+    if os.environ.get("HS_NOTIFY_TEST") == "1":
+        # 只测通知链路，不碰面板
+        tg("✅ host-ship 通知链路测试\n仓库 %s\n（这条是手动触发的测试消息）" % REPO)
+        log("NOTIFY-TEST done")
+        return 0
     st = info()
     log("server   : %s #%s" % (st["name"], st["name_id"]))
     log("状态     : 剩余 %s 天 | renewable=%s locked=%s cooldown=%ss suspended=%s"
