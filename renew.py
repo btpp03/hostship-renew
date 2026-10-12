@@ -108,6 +108,14 @@ def main():
     log("状态     : 剩余 %s 天 | renewable=%s locked=%s cooldown=%ss suspended=%s"
         % (st["days"], st["renewable"], st["locked"], st["cooldown"], st["suspended"]))
 
+    if os.environ.get("HS_SMOKE") == "1":
+        # 冒烟测试：只证明 runner 能真的打到 /renew，不改天数、不发 TG
+        s, t = renew_once()
+        log("SMOKE POST /renew -> HTTP %s %s" % (s, t[:200]))
+        time.sleep(3)
+        log("SMOKE after -> %s" % info()["days"])
+        return 0 if s in (200, 204) else 1
+
     if st["suspended"]:
         tg("❌ host-ship 服务器已被停用（%s #%s），需要手动登录面板处理\n%s" % (st["name"], st["name_id"], BASE))
         return 1

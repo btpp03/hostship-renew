@@ -7,6 +7,15 @@ on:
   schedule:
     - cron: '17 3,15 * * *'
   workflow_dispatch:
+    inputs:
+      smoke:
+        description: '冒烟测试：只打一次 /renew 不做守门判断、不发 TG'
+        type: boolean
+        default: false
+      min_days:
+        description: '覆盖 HS_MIN_DAYS（手动调试用，留空=10）'
+        type: string
+        default: ''
 
 concurrency:
   group: hostship-renew
@@ -30,9 +39,10 @@ jobs:
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           TG_THREAD_ID: ${{ secrets.TG_THREAD_ID }}
-          HS_MIN_DAYS: '10'
+          HS_MIN_DAYS: ${{ github.event.inputs.min_days != '' && github.event.inputs.min_days || '10' }}
           HS_TOPUP_DAYS: '30'
           HS_MAX_ROUNDS: '3'
+          HS_SMOKE: ${{ github.event.inputs.smoke == 'true' && '1' || '' }}
         run: python3 renew.py
 
       - name: 失败时提示
