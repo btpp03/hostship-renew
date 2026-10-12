@@ -1,0 +1,40 @@
+name: host-ship 自动续期
+
+# 面板续期周期 = 7 天；脚本自己守门（剩余 > HS_MIN_DAYS 天就静默跳过），
+# 所以这里多发几个点也没关系。GitHub 原生 schedule 经常丢 tick，
+# 真正的定时靠 cron-job.org 外部触发 workflow_dispatch（见 README）。
+on:
+  schedule:
+    - cron: '17 3,15 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: hostship-renew
+  cancel-in-progress: false
+
+jobs:
+  renew:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 检查 python
+        run: python3 -V
+
+      - name: 续期
+        env:
+          HS_API_KEY: ${{ secrets.HS_API_KEY }}
+          HS_UUID: ${{ secrets.HS_UUID }}
+          HS_BASE: ${{ secrets.HS_BASE }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          TG_THREAD_ID: ${{ secrets.TG_THREAD_ID }}
+          HS_MIN_DAYS: '10'
+          HS_TOPUP_DAYS: '30'
+          HS_MAX_ROUNDS: '3'
+        run: python3 renew.py
+
+      - name: 失败时提示
+        if: failure()
+        run: echo "::warning::续期流程失败，看上面的日志"
