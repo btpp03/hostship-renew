@@ -1,8 +1,8 @@
 name: host-ship 自动续期
 
-# 面板续期周期 = 7 天；脚本自己守门（剩余 > HS_MIN_DAYS 天就静默跳过），
-# 所以这里多发几个点也没关系。GitHub 原生 schedule 经常丢 tick，
-# 真正的定时靠 cron-job.org 外部触发 workflow_dispatch（见 README）。
+# 面板续期封顶由平台定（2026-11 实测 14 天）；脚本自己守门（剩余 > HS_MIN_DAYS 就静默跳过），
+# 且「已到封顶」的 400 不算失败。所以这里多发几个点也没关系。
+# GitHub 原生 schedule 经常丢 tick，真正的定时靠 cron-job.org 外部触发 workflow_dispatch（见 README）。
 on:
   schedule:
     - cron: '17 3,15 * * *'
@@ -44,8 +44,8 @@ jobs:
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
           TG_THREAD_ID: ${{ secrets.TG_THREAD_ID }}
           HS_MIN_DAYS: ${{ github.event.inputs.min_days != '' && github.event.inputs.min_days || '10' }}
-          HS_TOPUP_DAYS: '30'
-          HS_MAX_ROUNDS: '3'
+          HS_TOPUP_DAYS: '14'
+          HS_MAX_ROUNDS: '2'
           HS_SMOKE: ${{ github.event.inputs.smoke == 'true' && '1' || '' }}
           HS_NOTIFY_TEST: ${{ github.event.inputs.notify_test == 'true' && '1' || '' }}
         run: python3 renew.py

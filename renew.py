@@ -2,15 +2,17 @@
 """
 host-ship.com 免费服务器自动续期（Jexactyl 面板 client API，纯 HTTP，零依赖、不过盾）
 
-机制（从面板前端 bundle 里读出来的）:
+机制（从面板前端 bundle 里读出来的 + 面板 400 文案实测）:
   POST /api/client/servers/{uuid}/renew      -> 204，无 body
-  每次续期 = 加 max(0, min(10, 30 - 当前天数)) 天，总量封顶 30 天；两次续期之间冷却 60 秒。
-  所以「一次性顶到 30 天」= 连点 3 轮（每轮等 65s）。
+  一次续期直接顶到面板的「续期封顶」，两次续期之间冷却 60 秒。
+  封顶天数由平台定、会变（2026-10 为 30 天，2026-11 实测为 14 天）；
+  已到封顶再点会返回 400 "You cannot add more than N days of renewal time."
+  所以脚本不写死「封顶是多少」：续到 at_cap() 认出的 400 就停，或到 TOPUP_DAYS 就停。
 
 行为:
   - 剩余天数 > HS_MIN_DAYS  -> 静默跳过（只打印，不发 TG）
-  - 否则连续到 30 天（最多 HS_MAX_ROUNDS 轮）
-  - 成功发 1 条精简 TG；出错发告警并以 exit 1 结束（Actions 变红）
+  - 否则续到封顶（最多 HS_MAX_ROUNDS 轮）
+  - 成功发 1 条精简 TG；「已到封顶」是正常状态、不告警；真出错才告警并 exit 1
 环境变量: HS_API_KEY HS_UUID [HS_BASE] [HS_MIN_DAYS] [HS_TOPUP_DAYS] [HS_MAX_ROUNDS]
           [TG_BOT_TOKEN] [TG_CHAT_ID] [TG_THREAD_ID]
 """
@@ -25,8 +27,8 @@ BASE = os.environ.get("HS_BASE", "https://panel.host-ship.com").rstrip("/")
 KEY = os.environ.get("HS_API_KEY", "")
 UUID = os.environ.get("HS_UUID", "")
 MIN_DAYS = int(os.environ.get("HS_MIN_DAYS", "10"))
-TOPUP_DAYS = int(os.environ.get("HS_TOPUP_DAYS", "30"))
-MAX_ROUNDS = int(os.environ.get("HS_MAX_ROUNDS", "3"))
+TOPUP_DAYS = int(os.environ.get("HS_TOPUP_DAYS", "14"))
+MAX_ROUNDS = int(os.environ.get("HS_MAX_ROUNDS", "2"))
 COOLDOWN = int(os.environ.get("HS_COOLDOWN", "65"))
 REPO = os.environ.get("GITHUB_REPOSITORY", "btpp03/hostship-renew")
 TG_TOKEN = os.environ.get("TG_BOT_TOKEN", "")
@@ -76,6 +78,18 @@ def renew_once():
     return api("POST", "/api/client/servers/%s/renew" % UUID)
 
 
+def at_cap(status, text):
+    """面板 400 且明确说「已到续期封顶」= 正常状态，不是故障。
+
+    文案里的天数由平台决定、会变（30 -> 14 -> ...），只认语义、不写死数字，
+    避免像旧版那样写死 "30 days" 导致封顶改了就误报失败告警。
+    """
+    if status != 400:
+        return False
+    low = (text or "").lower()
+    return "cannot add more than" in low and "days" in low
+
+
 def tg(text):
     if not TG_TOKEN or not TG_CHAT:
         log("[tg] 未配置 TG_BOT_TOKEN/TG_CHAT_ID，跳过通知")
@@ -119,7 +133,7 @@ def main():
         log("SMOKE POST /renew -> HTTP %s %s" % (s, t[:200]))
         time.sleep(3)
         log("SMOKE after -> %s" % info()["days"])
-        log("（冒烟测试到此为止：HTTP 204=真续上了；400 'cannot add more than 30 days'=已顶到上限，正常）")
+        log("（冒烟到此：HTTP 204=真续上了；400 'cannot add more than N days'=已到封顶，正常）")
         return 0
 
     if st["suspended"]:
@@ -141,8 +155,9 @@ def main():
     before = st["days"]
     cur = before
     rounds = 0
+    cap_hit = False
     for i in range(MAX_ROUNDS):
-        if cur >= TOPUP_DAYS or cur >= 30:
+        if cur >= TOPUP_DAYS:
             break
         s, t = renew_once()
         log("第 %d 轮 POST /renew -> HTTP %s %s" % (i + 1, s, t[:200]))
@@ -151,8 +166,9 @@ def main():
                 log("网络错误，稍后重试")
                 time.sleep(20)
                 continue
-            if s == 400 and "more than 30 days" in t:
-                log("已顶到 30 天上限（面板正常拒绝），无需再续")
+            if at_cap(s, t):
+                log("面板已到续期封顶（正常拒绝），无需再续")
+                cap_hit = True
                 break
             tg("❌ host-ship 续期失败：HTTP %s %s\n%s" % (s, t[:200], BASE))
             return 1
@@ -168,6 +184,10 @@ def main():
     if rounds and gained and gained > 0:
         tg("✅ host-ship 续期成功：%s 天 → %s 天（%s 轮）\n📦 %s/%s" % (before, cur, rounds, "https://github.com", REPO))
         log("OK 续期成功 %s -> %s" % (before, cur))
+        return 0
+    # 已到封顶 / 本来就达标：不是故障，静默结束（旧版在这里会误发「没生效」告警）
+    if cap_hit or (isinstance(cur, int) and cur >= TOPUP_DAYS):
+        log("无需续期：剩余 %s 天，已达面板封顶/目标（%s 天）" % (cur, TOPUP_DAYS))
         return 0
     tg("⚠️ host-ship 续期没生效：续了 %s 轮，天数 %s -> %s\n%s/server/%s" % (rounds, before, cur, BASE, st["name_id"]))
     log("!! 续期未生效")
